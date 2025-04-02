@@ -30,6 +30,8 @@ As well as a simple pong game written in gameboy assembly.
 
 Make sure you have SDL2 installed. Then compile with make.
 
+For pongus, make inside that directory, rgbasm is required.
+
 
 ## Run
 
