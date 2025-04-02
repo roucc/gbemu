@@ -1,0 +1,69 @@
+SUMMARY:
+	ROM0: 781 bytes used / 15603 free
+	WRAM0: 13 bytes used / 8179 free
+
+ROM0 bank #0:
+	SECTION: $0000 ($0000 bytes) ["Tilemap"]
+	         $0000 = Tilemap
+	         $0000 = TilemapEnd
+	EMPTY: $0000-$0037 ($0038 bytes)
+	SECTION: $0038-$0038 ($0001 byte) ["RST_38"]
+	EMPTY: $0039-$00ff ($00c7 bytes)
+	SECTION: $0100-$032b ($022c bytes) ["Header"]
+	         $0150 = EntryPoint
+	         $0156 = WaitVBlank
+	         $0164 = CopyTiles
+	         $0177 = Main
+	         $01a5 = Main.Mainloop
+	         $01e5 = Main.noballmove
+	         $01eb = MoveBall
+	         $0223 = MoveBall.nocollide
+	         $0223 = MoveBall.incdone
+	         $0233 = MoveBall.xbouncer
+	         $023f = MoveBall.xbouncel
+	         $0249 = MoveBall.skipx
+	         $025c = MoveBall.ybounceb
+	         $0268 = MoveBall.ybouncet
+	         $0272 = MoveBall.skipy
+	         $0276 = MoveBat
+	         $0283 = MoveBat.move_right
+	         $028c = MoveBat.move_left
+	         $0293 = MoveBat.skip_move
+	         $0294 = PlotBall
+	         $02ad = PlotBat
+	         $02c6 = MultiplyBC
+	         $02c9 = MultiplyBC.loop
+	         $02d3 = ClearScreen
+	         $02de = ClearScreen.loop
+	         $02e6 = VBlankWaitA
+	         $02e6 = VBlankWaitA.wait
+	         $02e7 = VBlankWaitA.loop
+	         $02f2 = VBlankWaitA.loop2
+	         $02fb = UpdateKeys
+	         $031b = UpdateKeys.onenibble
+	         $0328 = UpdateKeys.knownret
+	         $0329 = Done
+	SECTION: $032c-$040b ($00e0 bytes) ["Tile data"]
+	         $032c = Tiles
+	         $040c = TilesEnd
+	EMPTY: $040c-$3fff ($3bf4 bytes)
+	TOTAL EMPTY: $3cf3 bytes
+
+WRAM0 bank #0:
+	SECTION: $c000-$c00a ($000b bytes) ["Variables"]
+	         $c000 = BALL_X
+	         $c001 = BALL_Y
+	         $c002 = BALL_DX
+	         $c003 = BALL_DY
+	         $c004 = BAT_X
+	         $c005 = BAT_Y
+	         $c006 = BAT_DX
+	         $c007 = FRAME
+	         $c008 = SCORE10
+	         $c009 = SCORE1
+	         $c00a = COLLIDE
+	SECTION: $c00b-$c00c ($0002 bytes) ["Input Variables"]
+	         $c00b = wCurKeys
+	         $c00c = wNewKeys
+	EMPTY: $c00d-$dfff ($1ff3 bytes)
+	TOTAL EMPTY: $1ff3 bytes
