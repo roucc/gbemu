@@ -247,6 +247,12 @@ MoveBall:
   cpl a
   inc a
   ld [BALL_DY], a
+
+  ; clear score
+  xor a
+  ld [SCORE1], a
+  ld [SCORE10], a
+
   ld a, 17
   jr .skipy
 

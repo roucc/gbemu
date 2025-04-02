@@ -1,5 +1,5 @@
 SUMMARY:
-	ROM0: 781 bytes used / 15603 free
+	ROM0: 788 bytes used / 15596 free
 	WRAM0: 13 bytes used / 8179 free
 
 ROM0 bank #0:
@@ -9,7 +9,7 @@ ROM0 bank #0:
 	EMPTY: $0000-$0037 ($0038 bytes)
 	SECTION: $0038-$0038 ($0001 byte) ["RST_38"]
 	EMPTY: $0039-$00ff ($00c7 bytes)
-	SECTION: $0100-$032b ($022c bytes) ["Header"]
+	SECTION: $0100-$0332 ($0233 bytes) ["Header"]
 	         $0150 = EntryPoint
 	         $0156 = WaitVBlank
 	         $0164 = CopyTiles
@@ -23,31 +23,31 @@ ROM0 bank #0:
 	         $023f = MoveBall.xbouncel
 	         $0249 = MoveBall.skipx
 	         $025c = MoveBall.ybounceb
-	         $0268 = MoveBall.ybouncet
-	         $0272 = MoveBall.skipy
-	         $0276 = MoveBat
-	         $0283 = MoveBat.move_right
-	         $028c = MoveBat.move_left
-	         $0293 = MoveBat.skip_move
-	         $0294 = PlotBall
-	         $02ad = PlotBat
-	         $02c6 = MultiplyBC
-	         $02c9 = MultiplyBC.loop
-	         $02d3 = ClearScreen
-	         $02de = ClearScreen.loop
-	         $02e6 = VBlankWaitA
-	         $02e6 = VBlankWaitA.wait
-	         $02e7 = VBlankWaitA.loop
-	         $02f2 = VBlankWaitA.loop2
-	         $02fb = UpdateKeys
-	         $031b = UpdateKeys.onenibble
-	         $0328 = UpdateKeys.knownret
-	         $0329 = Done
-	SECTION: $032c-$040b ($00e0 bytes) ["Tile data"]
-	         $032c = Tiles
-	         $040c = TilesEnd
-	EMPTY: $040c-$3fff ($3bf4 bytes)
-	TOTAL EMPTY: $3cf3 bytes
+	         $026f = MoveBall.ybouncet
+	         $0279 = MoveBall.skipy
+	         $027d = MoveBat
+	         $028a = MoveBat.move_right
+	         $0293 = MoveBat.move_left
+	         $029a = MoveBat.skip_move
+	         $029b = PlotBall
+	         $02b4 = PlotBat
+	         $02cd = MultiplyBC
+	         $02d0 = MultiplyBC.loop
+	         $02da = ClearScreen
+	         $02e5 = ClearScreen.loop
+	         $02ed = VBlankWaitA
+	         $02ed = VBlankWaitA.wait
+	         $02ee = VBlankWaitA.loop
+	         $02f9 = VBlankWaitA.loop2
+	         $0302 = UpdateKeys
+	         $0322 = UpdateKeys.onenibble
+	         $032f = UpdateKeys.knownret
+	         $0330 = Done
+	SECTION: $0333-$0412 ($00e0 bytes) ["Tile data"]
+	         $0333 = Tiles
+	         $0413 = TilesEnd
+	EMPTY: $0413-$3fff ($3bed bytes)
+	TOTAL EMPTY: $3cec bytes
 
 WRAM0 bank #0:
 	SECTION: $c000-$c00a ($000b bytes) ["Variables"]
