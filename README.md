@@ -25,6 +25,7 @@ As well as a simple pong game written in gameboy assembly.
 | K        | A Button    |
 | L        | Select      |
 | ;        | Start       |
+| SPACE    | Boost       |
 
 ## Build
 
@@ -35,7 +36,7 @@ For pongus, make inside that directory, rgbasm is required.
 
 ## Run
 
-./gbemu path/to/rom.gb
+./GBemu path/to/rom.gb
 
 ## Files
 

@@ -120,6 +120,8 @@ int main(int argc, char **argv) {
   uint32_t *pixels = malloc(DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint32_t));
   memset(pixels, 0, DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint32_t));
 
+  // default run speed
+  int cycles = 108;
   while (1) {
     // handle inputs
     SDL_Event event;
@@ -131,6 +133,10 @@ int main(int argc, char **argv) {
         bool pressed = (event.type == SDL_KEYDOWN) ? 0 : 1;
 
         switch (event.key.keysym.sym) {
+        case SDLK_SPACE:
+          // boost
+          cycles = pressed ? 108 : 1080;
+          break;
         case SDLK_w:
           direction_state =
               (direction_state & ~BUTTON_UP) | (pressed ? BUTTON_UP : 0);
@@ -171,9 +177,9 @@ int main(int argc, char **argv) {
     // vblank timings
     for (int i = 0; i < 154; i++) {
       vblank = i;
-      // 108 cycles as 1/154 / 60 = 108
+      // 108 cycles by defualt as 1/154 / 60 = 108
       // asumming cpu does 1M instructions per second
-      CPU_run(cpu, 108);
+      CPU_run(cpu, cycles);
     }
 
     // draw screen

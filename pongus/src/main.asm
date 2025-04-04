@@ -16,8 +16,6 @@ SECTION "Variables", WRAM0
   SCORE10: db
   SCORE1: db
 
-  COLLIDE: db
-
 
 SECTION "RST_38",ROM0[$0038]
   RET
@@ -153,12 +151,9 @@ Main:
   ; move ball n stuff
   call MoveBall
   ; plot ball
-  ; TODO: 
-  ; ld a, [COLLIDE]
   ld a, 1
   call PlotBall
-  ; ld a, 1
-  ; ld [COLLIDE], a
+
 .noballmove:
   jp .Mainloop
 
@@ -175,6 +170,7 @@ MoveBall:
   ld a, [BALL_Y]
   ld b,a
   ld a, [BAT_Y]
+  dec a ; check when the bat is 1 pixel above the ball
   cp a,b
   jr nz, .nocollide
   ld a, [BALL_DY]
@@ -183,10 +179,6 @@ MoveBall:
   ld [BALL_DY], a
 
   ; ball and bat have collided
-
-  ld a, 13
-  ld [COLLIDE], a
-
   ; increment score
   ld a, [SCORE1]
   inc a
@@ -459,18 +451,18 @@ Tiles:
   db %00000000
 
   ;bat
-  db %00000000
-  db %00000000
-  db %00000000
-  db %00000000
-  db %00000000
-  db %00000000
   db %11111111
   db %11111111
   db %11111111
   db %11111111
   db %11111111
   db %11111111
+  db %00000000
+  db %00000000
+  db %00000000
+  db %00000000
+  db %00000000
+  db %00000000
   db %00000000
   db %00000000
   db %00000000
@@ -655,25 +647,6 @@ Tiles:
   db %00111100
   db %00000000
   db %00000000
-
-  ;ball and tile together
-  db %00111100
-  db %00111100
-  db %01111110
-  db %01111110
-  db %01111110
-  db %01111110
-  db %11111111
-  db %11111111
-  db %11111111
-  db %11111111
-  db %11111111
-  db %11111111
-  db %00000000
-  db %00000000
-  db %00000000
-  db %00000000
-
 
 TilesEnd:
 
