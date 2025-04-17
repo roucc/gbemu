@@ -38,6 +38,14 @@ typedef struct CPU {
     uint16_t AF;
   };
   uint16_t SP, PC;
+
+  // global interrupt flag
+  uint8_t IME;
+  uint8_t pending_IME;
+
+  // global cycle count
+  uint8_t cycle_count;
+
   // memory
   uint8_t _memory[65536];
   void (*hw_write)(uint16_t address, uint8_t val);
@@ -48,6 +56,9 @@ CPU *CPU_new() {
   CPU *cpu = calloc(1, sizeof(CPU));
   cpu->SP = 0xfffe;
   cpu->PC = 0x0100;
+  cpu->IME = 0;
+  cpu->pending_IME = 0;
+  cpu->cycle_count = 0;
   cpu->hw_write = NULL;
   cpu->hw_read = NULL;
   return cpu;
@@ -627,12 +638,19 @@ void CPU_ret(CPU *cpu, uint8_t opcode) {
   cpu->PC |= CPU_read_memory(cpu, cpu->SP++) << 8;
 };
 
+// void CPU_reti(CPU *cpu, uint8_t opcode) {
+//   (void)opcode;
+//   cpu->PC = CPU_read_memory(cpu, cpu->SP++);
+//   cpu->PC |= CPU_read_memory(cpu, cpu->SP++) << 8;
+//   cpu->IME = 1;
+// };
 void CPU_reti(CPU *cpu, uint8_t opcode) {
   (void)opcode;
-  cpu->PC = CPU_read_memory(cpu, cpu->SP++);
-  cpu->PC |= CPU_read_memory(cpu, cpu->SP++) << 8;
-  // TODO: implement interrupts
-};
+  uint8_t low = CPU_read_memory(cpu, cpu->SP++);
+  uint8_t high = CPU_read_memory(cpu, cpu->SP++);
+  cpu->PC = (high << 8) | low;
+  cpu->IME = 1;
+}
 
 void CPU_jp_cond_imm16(CPU *cpu, uint8_t opcode) {
   (void)opcode;
@@ -668,16 +686,14 @@ void CPU_call_imm16(CPU *cpu, uint8_t opcode) {
   cpu->PC = addr;
 }
 
-// TODO: interrupt stuff
-
 void CPU_di(CPU *cpu, uint8_t opcode) {
   (void)opcode;
-  (void)cpu;
+  cpu->IME = 0;
 }
 
 void CPU_ei(CPU *cpu, uint8_t opcode) {
   (void)opcode;
-  (void)cpu;
+  cpu->pending_IME = 1;
 }
 
 void CPU_rst(CPU *cpu, uint8_t opcode) {
@@ -1229,14 +1245,94 @@ static OpcodeHandler opcodeTable[256] = {
     [0xFF] = CPU_rst,
 };
 
+static int div_counter = 0;
+static int tima_counter = 0;
+
+// cycles elapsed by instruction for real per-instruction cycle counts
+void CPU_update_timer(CPU *cpu, int cycles_elapsed) {
+  // --- DIV logic ---
+  div_counter += cycles_elapsed;
+  while (div_counter >= 256) {
+    div_counter -= 256;
+    uint8_t div = CPU_read_memory(cpu, 0xFF04);
+    CPU_write_memory(cpu, 0xFF04, div + 1);
+  }
+
+  // --- TIMA logic ---
+  uint8_t tac = CPU_read_memory(cpu, 0xFF07);
+  if (!(tac & 0x04))
+    return; // timer disabled
+
+  int freq_select = tac & 0x03;
+  int threshold;
+  switch (freq_select) {
+  case 0:
+    threshold = 1024;
+    break;
+  case 1:
+    threshold = 16;
+    break;
+  case 2:
+    threshold = 64;
+    break;
+  case 3:
+    threshold = 256;
+    break;
+  }
+
+  tima_counter += cycles_elapsed;
+  while (tima_counter >= threshold) {
+    tima_counter -= threshold;
+
+    uint8_t tima = CPU_read_memory(cpu, 0xFF05);
+    uint8_t tma = CPU_read_memory(cpu, 0xFF06);
+    uint8_t if_reg = CPU_read_memory(cpu, 0xFF0F);
+
+    if (tima == 0xFF) {
+      tima = tma;
+      if_reg |= 0x04; // timer interrupt
+    } else {
+      tima++;
+    }
+
+    CPU_write_memory(cpu, 0xFF05, tima);
+    CPU_write_memory(cpu, 0xFF0F, if_reg);
+  }
+}
+
 void CPU_instruction(CPU *cpu) {
   uint8_t opcode = CPU_read_memory(cpu, cpu->PC++);
   OpcodeHandler handler = opcodeTable[opcode];
   handler(cpu, opcode);
+  if (cpu->pending_IME) {
+    cpu->IME = 1;
+    cpu->pending_IME = 0;
+  }
+  // 4 is an average cycle time
+  CPU_update_timer(cpu, 4);
 };
 
 void CPU_run(CPU *cpu, int cycles) {
   for (int i = 0; i < cycles; i++) {
+    // handle interrupts if IME is set and if interrupt is pending
+    uint8_t iflags = CPU_read_memory(cpu, 0xFF0F);
+    uint8_t ienable = CPU_read_memory(cpu, 0xFFFF);
+
+    if (cpu->IME && (iflags & ienable)) {
+      for (int j = 0; j < 5; j++) {
+        if ((iflags & (1 << j)) && (ienable & (1 << j))) {
+          cpu->IME = 0;
+          iflags &= ~(1 << j);
+          CPU_write_memory(cpu, 0xFF0F, iflags);
+
+          // push return address
+          CPU_write_memory(cpu, --cpu->SP, (cpu->PC >> 8) & 0xFF);
+          CPU_write_memory(cpu, --cpu->SP, cpu->PC & 0xFF);
+          cpu->PC = 0x40 + j * 8; // jump to ISR
+          break;
+        }
+      }
+    }
     // CPU_display(cpu);
     CPU_instruction(cpu);
   }

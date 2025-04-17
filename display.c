@@ -44,25 +44,67 @@ void DISPLAY_plot_tile(uint8_t *tile, int x, int y, uint32_t *pixels) {
   }
 }
 
-uint8_t vblank = 0;
+// interrupt registers
+uint8_t ly = 0;                 // current scan line
 uint8_t direction_state = 0x0F; // 0 = pressed
 uint8_t button_state = 0x0F;
 uint8_t joyp = 0x3F;
+uint8_t if_reg = 0xE1;
+uint8_t ie_reg = 0x00;
+
+// Timer registers
+uint8_t divr = 0; // 0xFF04 – Divider (increments every 256 cycles)
+uint8_t tima = 0; // 0xFF05 – Timer counter
+uint8_t tma = 0;  // 0xFF06 – Timer modulo (reload value)
+uint8_t tac = 0;  // 0xFF07 – Timer control
+
+// LCD status registers
+uint8_t stat = 0; // 0xFF41 – LCD STAT
+uint8_t lyc = 0;  // 0xFF45 – LYC compare value
 
 void hw_write(uint16_t address, uint8_t val) {
   switch (address) {
   case 0xFF44:
     // vblank
+    ly = val;
+    break;
   case 0xFF00:
     // joyp
     joyp = val;
+    break;
+  case 0xFF0F:
+    // interrupt flag
+    if_reg = val;
+    break;
+  case 0xFFFF:
+    // interrupt enable
+    ie_reg = val;
+    break;
+  case 0xFF04:
+    divr = 0; // writing resets div
+    break;
+  case 0xFF05:
+    tima = val;
+    break;
+  case 0xFF06:
+    tma = val;
+    break;
+  case 0xFF07:
+    tac = val;
+    break;
+  case 0xFF41:
+    stat = val;
+    break;
+  case 0xFF45:
+    lyc = val;
+    break;
   }
 }
 uint8_t hw_read(uint16_t address) {
   switch (address) {
   case 0xFF44:
     // vblank
-    return vblank;
+    return ly;
   case 0xFF00: {
     // joyp
     uint8_t select = joyp & 0xF0;
@@ -76,6 +118,22 @@ uint8_t hw_read(uint16_t address) {
     }
     return joyp;
   }
+  case 0xFF0F:
+    return if_reg;
+  case 0xFFFF:
+    return ie_reg;
+  case 0xFF04:
+    return divr;
+  case 0xFF05:
+    return tima;
+  case 0xFF06:
+    return tma;
+  case 0xFF07:
+    return tac;
+  case 0xFF41:
+    return stat;
+  case 0xFF45:
+    return lyc;
   default:
     return 0;
   }
@@ -101,6 +159,7 @@ int main(int argc, char **argv) {
     printf("syntax: %s rom\n", argv[0]);
     exit(1);
   };
+
   CPU *cpu = CPU_new();
   CPU_hardware(cpu, hw_write, hw_read);
 
@@ -121,7 +180,7 @@ int main(int argc, char **argv) {
   memset(pixels, 0, DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint32_t));
 
   // default run speed
-  int cycles = 108;
+  int batches = 1;
   while (1) {
     // handle inputs
     SDL_Event event;
@@ -135,7 +194,7 @@ int main(int argc, char **argv) {
         switch (event.key.keysym.sym) {
         case SDLK_SPACE:
           // boost
-          cycles = pressed ? 108 : 1080;
+          batches = pressed ? 1 : 10;
           break;
         case SDLK_w:
           direction_state =
@@ -171,15 +230,17 @@ int main(int argc, char **argv) {
       }
     }
 
-    // Update Joypad register (0xFF00)
-
-    // printf("%x\n", *joyp);
     // vblank timings
     for (int i = 0; i < 154; i++) {
-      vblank = i;
+      ly = i;
       // 108 cycles by defualt as 1/154 / 60 = 108
       // asumming cpu does 1M instructions per second
-      CPU_run(cpu, cycles);
+      if (i == 144) {
+        if_reg |= 0x01; // request vblank interrupt
+      }
+      for (int j = 0; j < batches; j++) {
+        CPU_run(cpu, 108);
+      }
     }
 
     // draw screen

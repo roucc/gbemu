@@ -154,6 +154,8 @@ Main:
   ld a, 1
   call PlotBall
 
+  ; TODO: incrent ball speed with score
+
 .noballmove:
   jp .Mainloop
 
