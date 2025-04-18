@@ -1,3 +1,4 @@
+#include "cartridge.h"
 #include "cpu.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_events.h>
@@ -35,6 +36,7 @@ void DISPLAY_plot_tile(uint8_t *tile, int x, int y, uint32_t *pixels) {
       }
       uint8_t colorindex = ((b0 & 0x80) >> 6) | ((b1 & 0x80) >> 7);
       uint32_t color = colors[colorindex];
+
       if (colorindex != 0) {
         pixels[Y * DISPLAY_WIDTH + X] = color;
       }
@@ -100,6 +102,7 @@ void hw_write(uint16_t address, uint8_t val) {
     break;
   }
 }
+
 uint8_t hw_read(uint16_t address) {
   switch (address) {
   case 0xFF44:
@@ -139,6 +142,40 @@ uint8_t hw_read(uint16_t address) {
   }
 }
 
+void check_stat_interrupt(uint8_t mode) {
+  if (ly == lyc) {
+    stat |= 0x04; // LYC=LY flag
+    if (stat & 0x40) {
+      if_reg |= 0x02; // request STAT interrupt
+    }
+  } else {
+    stat &= ~0x04;
+  }
+
+  stat = (stat & 0xFC) | (mode & 0x03); // set mode
+
+  switch (mode) {
+  case 0: // hblank
+    if (stat & 0x08) {
+      if_reg |= 0x02;
+    }
+    break;
+  case 1: // vblank
+    if (stat & 0x10) {
+      if_reg |= 0x02;
+    }
+    break;
+  case 2: // oam
+    if (stat & 0x20) {
+      if_reg |= 0x02;
+    }
+    break;
+  case 3: // lcd
+    // no stat interrupt
+    break;
+  }
+}
+
 void DISPLAY_gbmemory_to_sdl(uint32_t *pixels, uint8_t *vram) {
   for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) {
     pixels[i] = colors[0];
@@ -163,7 +200,13 @@ int main(int argc, char **argv) {
   CPU *cpu = CPU_new();
   CPU_hardware(cpu, hw_write, hw_read);
 
-  CPU_read_rom(cpu, argv[1]);
+  // CPU_read_rom(cpu, argv[1]);
+  cpu->cart = cart_load(argv[1]);
+  if (!cpu->cart) {
+    printf("Failed to load ROM\n");
+    return 1;
+  }
+  printf("Loaded %zu bytes of ROM\n", cpu->cart->rom_size);
 
   SDL_Init(SDL_INIT_VIDEO);
   SDL_Window *window = SDL_CreateWindow(
@@ -230,16 +273,35 @@ int main(int argc, char **argv) {
       }
     }
 
-    // vblank timings
-    for (int i = 0; i < 154; i++) {
-      ly = i;
-      // 108 cycles by defualt as 1/154 / 60 = 108
-      // asumming cpu does 1M instructions per second
-      if (i == 144) {
-        if_reg |= 0x01; // request vblank interrupt
-      }
+    // cpu loop
+    for (int scanline = 0; scanline < 144; scanline++) {
+      ly = scanline;
       for (int j = 0; j < batches; j++) {
-        CPU_run(cpu, 108);
+        // mode 2, oam
+        check_stat_interrupt(2);
+        CPU_run(cpu, 80);
+
+        // mode 3, lcd
+        check_stat_interrupt(3);
+        CPU_run(cpu, 172);
+
+        // mode 0, hblank
+        check_stat_interrupt(0);
+        CPU_run(cpu, 204);
+      }
+    }
+
+    // vblank loop
+    for (int scanline = 144; scanline < 154; scanline++) {
+      ly = scanline;
+      for (int j = 0; j < batches; j++) {
+        // mode 1, vblank
+        check_stat_interrupt(1);
+        if (ly == 144) {
+          // request vblank interrupt
+          if_reg |= 0x01;
+        }
+        CPU_run(cpu, 456);
       }
     }
 

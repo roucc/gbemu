@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include "cartridge.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,56 +12,78 @@
 #define F_c 0x10
 
 // cpu struct
-typedef struct CPU {
-  // define registers in cpu
-  union {
-    struct {
-      uint8_t C, B;
-    };
-    uint16_t BC;
-  };
-  union {
-    struct {
-      uint8_t E, D;
-    };
-    uint16_t DE;
-  };
-  union {
-    struct {
-      uint8_t L, H;
-    };
-    uint16_t HL;
-  };
-  union {
-    struct {
-      uint8_t F, A;
-    };
-    uint16_t AF;
-  };
-  uint16_t SP, PC;
+// typedef struct CPU {
+//   Cartridge *cart;
+//   // define registers in cpu
+//   union {
+//     struct {
+//       uint8_t C, B;
+//     };
+//     uint16_t BC;
+//   };
+//   union {
+//     struct {
+//       uint8_t E, D;
+//     };
+//     uint16_t DE;
+//   };
+//   union {
+//     struct {
+//       uint8_t L, H;
+//     };
+//     uint16_t HL;
+//   };
+//   union {
+//     struct {
+//       uint8_t F, A;
+//     };
+//     uint16_t AF;
+//   };
+//   uint16_t SP, PC;
+//
+//   // global interrupt flag
+//   uint8_t IME;
+//   uint8_t pending_IME;
+//
+//   // global cycle count
+//   uint8_t cycle_count;
+//
+//   // memory
+//   uint8_t _memory[65536];
+//   void (*hw_write)(uint16_t address, uint8_t val);
+//   uint8_t (*hw_read)(uint16_t address);
+// } CPU;
 
-  // global interrupt flag
-  uint8_t IME;
-  uint8_t pending_IME;
-
-  // global cycle count
-  uint8_t cycle_count;
-
-  // memory
-  uint8_t _memory[65536];
-  void (*hw_write)(uint16_t address, uint8_t val);
-  uint8_t (*hw_read)(uint16_t address);
-} CPU;
-
+// CPU *CPU_new() {
+//   CPU *cpu = calloc(1, sizeof(CPU));
+//   cpu->SP = 0xfffe;
+//   cpu->PC = 0x0100;
+//   cpu->IME = 0;
+//   cpu->pending_IME = 0;
+//   cpu->cycle_count = 0;
+//   cpu->hw_write = NULL;
+//   cpu->hw_read = NULL;
+//   return cpu;
+// }
 CPU *CPU_new() {
   CPU *cpu = calloc(1, sizeof(CPU));
-  cpu->SP = 0xfffe;
+  if (!cpu)
+    return NULL;
+
+  cpu->AF = 0x01B0;
+  cpu->BC = 0x0013;
+  cpu->DE = 0x00D8;
+  cpu->HL = 0x014D;
+  cpu->SP = 0xFFFE;
   cpu->PC = 0x0100;
+
   cpu->IME = 0;
   cpu->pending_IME = 0;
   cpu->cycle_count = 0;
+
   cpu->hw_write = NULL;
   cpu->hw_read = NULL;
+
   return cpu;
 }
 
@@ -93,20 +116,51 @@ void CPU_core_dump(CPU *cpu) {
 
 uint8_t *CPU_memory(CPU *cpu) { return cpu->_memory; };
 
-uint8_t CPU_read_memory(CPU *cpu, uint16_t src) {
-  if (cpu->hw_read != NULL &&
-      ((src >= 0xFF00 && src <= 0xFF7F) || src == 0xFFFF)) {
-    return cpu->hw_read(src);
+// uint8_t CPU_read_memory(CPU *cpu, uint16_t src) {
+//   if (cpu->hw_read != NULL &&
+//       ((src >= 0xFF00 && src <= 0xFF7F) || src == 0xFFFF)) {
+//     return cpu->hw_read(src);
+//   }
+//   return cpu->_memory[src];
+// }
+
+uint8_t CPU_read_memory(CPU *cpu, uint16_t addr) {
+  // MMIO / hardware registers
+  if (cpu->hw_read && ((addr >= 0xFF00 && addr <= 0xFF7F) || addr == 0xFFFF)) {
+    return cpu->hw_read(addr);
   }
-  return cpu->_memory[src];
+
+  // ROM or external RAM (handled by MBC)
+  if (addr < 0x8000 || (addr >= 0xA000 && addr < 0xC000)) {
+    return cart_read(cpu->cart, addr);
+  }
+
+  // Normal RAM
+  return cpu->_memory[addr];
 }
 
-void CPU_write_memory(CPU *cpu, uint16_t dst, uint8_t val) {
-  if (cpu->hw_write != NULL &&
-      ((dst >= 0xFF00 && dst <= 0xFF7F) || dst == 0xFFFF)) {
-    return cpu->hw_write(dst, val);
+// void CPU_write_memory(CPU *cpu, uint16_t dst, uint8_t val) {
+//   if (cpu->hw_write != NULL &&
+//       ((dst >= 0xFF00 && dst <= 0xFF7F) || dst == 0xFFFF)) {
+//     return cpu->hw_write(dst, val);
+//   }
+//   cpu->_memory[dst] = val;
+// }
+
+void CPU_write_memory(CPU *cpu, uint16_t addr, uint8_t val) {
+  if (cpu->hw_write && ((addr >= 0xFF00 && addr <= 0xFF7F) || addr == 0xFFFF)) {
+    cpu->hw_write(addr, val);
+    return;
   }
-  cpu->_memory[dst] = val;
+
+  // ROM bank switch or external RAM
+  if (addr < 0x8000 || (addr >= 0xA000 && addr < 0xC000)) {
+    cart_write(cpu->cart, addr, val);
+    return;
+  }
+
+  // Normal RAM
+  cpu->_memory[addr] = val;
 }
 
 // register sets:
@@ -1338,14 +1392,23 @@ void CPU_run(CPU *cpu, int cycles) {
   }
 }
 
+// void CPU_read_rom(CPU *cpu, const char *filename) {
+//   FILE *file = fopen(filename, "rb");
+//   if (!file) {
+//     printf("error: could not open file %s\n", filename);
+//     exit(1);
+//   }
+//   // Read the entire ROM starting at memory address 0.
+//   size_t bytesRead = fread(cpu->_memory, 1, sizeof(cpu->_memory), file);
+//   printf("Loaded %zu bytes of ROM\n", bytesRead);
+//   fclose(file);
+// }
+
 void CPU_read_rom(CPU *cpu, const char *filename) {
-  FILE *file = fopen(filename, "rb");
-  if (!file) {
-    printf("error: could not open file %s\n", filename);
+  cpu->cart = cart_load(filename);
+  if (!cpu->cart) {
+    printf("Failed to load cartridge: %s\n", filename);
     exit(1);
   }
-  // Read the entire ROM starting at memory address 0.
-  size_t bytesRead = fread(cpu->_memory, 1, sizeof(cpu->_memory), file);
-  printf("Loaded %zu bytes of ROM\n", bytesRead);
-  fclose(file);
+  printf("Loaded %zu bytes of ROM\n", cpu->cart->rom_size);
 }
