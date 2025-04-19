@@ -32,14 +32,30 @@ typedef struct CPU {
   };
   uint16_t SP, PC;
 
+  // Memory mapped IO
+
+  // interrupt registers
+  uint8_t ly; // current scan line
+  uint8_t direction_state;
+  uint8_t button_state;
+  uint8_t joyp;
+  uint8_t if_reg;
+  uint8_t ie_reg;
+
+  // Timer registers
+  uint8_t divr; // 0xFF04 – Divider (increments every 256 cycles)
+  uint8_t tima; // 0xFF05 – Timer counter
+  uint8_t tma;  // 0xFF06 – Timer modulo (reload value)
+  uint8_t tac;  // 0xFF07 – Timer control
+
+  // LCD status registers
+  uint8_t stat; // 0xFF41 – LCD STAT
+  uint8_t lyc;  // 0xFF45 – LYC compare value
+
   // Memory
   uint8_t _memory[65536];
 
-  // Hardware hooks
-  void (*hw_write)(uint16_t, uint8_t);
-  uint8_t (*hw_read)(uint16_t);
-
-  // Interrupts
+  // Other
   uint8_t IME;
   uint8_t pending_IME;
   uint64_t cycle_count;
@@ -51,8 +67,10 @@ typedef struct CPU {
 // Interface
 CPU *CPU_new();
 void CPU_run(CPU *cpu, int);
-void CPU_hardware(CPU *cpu, void (*hw_write)(uint16_t, uint8_t),
-                  uint8_t (*hw_read)(uint16_t));
 uint8_t *CPU_memory(CPU *cpu);
+uint8_t CPU_read_memory(CPU *cpu, uint16_t address);
+void CPU_write_memory(CPU *cpu, uint16_t addr, uint8_t val);
+uint8_t *CPU_io_pointer(CPU *cpu, uint16_t address);
+void CPU_check_stat_interrupt(CPU *cpu, uint8_t mode);
 
 #endif // CPU_H

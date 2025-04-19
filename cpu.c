@@ -23,20 +23,138 @@ CPU *CPU_new() {
   cpu->SP = 0xFFFE;
   cpu->PC = 0x0100;
 
+  cpu->ly = 0;                 // current scan line
+  cpu->direction_state = 0x0F; // 0 = pressed
+  cpu->button_state = 0x0F;
+  cpu->joyp = 0x3F;
+  cpu->if_reg = 0xE1;
+  cpu->ie_reg = 0x00;
+
+  cpu->divr = 0; // 0xFF04 – Divider (increments every 256 cycles)
+  cpu->tima = 0; // 0xFF05 – Timer counter
+  cpu->tma = 0;  // 0xFF06 – Timer modulo (reload value)
+  cpu->tac = 0;  // 0xFF07 – Timer control
+
+  cpu->stat = 0; // 0xFF41 – LCD STAT
+  cpu->lyc = 0;  // 0xFF45 – LYC compare value
+
   cpu->IME = 0;
   cpu->pending_IME = 0;
   cpu->cycle_count = 0;
 
-  cpu->hw_write = NULL;
-  cpu->hw_read = NULL;
-
   return cpu;
 }
 
-void CPU_hardware(CPU *cpu, void (*hw_write)(uint16_t address, uint8_t val),
-                  uint8_t (*hw_read)(uint16_t address)) {
-  cpu->hw_read = hw_read;
-  cpu->hw_write = hw_write;
+void hw_write(CPU *cpu, uint16_t address, uint8_t val) {
+  switch (address) {
+  case 0xFF44:
+    // vblank
+    cpu->ly = val;
+    break;
+  case 0xFF00:
+    // joyp
+    cpu->joyp = val;
+    break;
+  case 0xFF0F:
+    // interrupt flag
+    cpu->if_reg = val;
+    break;
+  case 0xFFFF:
+    // interrupt enable
+    cpu->ie_reg = val;
+    break;
+  case 0xFF04:
+    cpu->divr = 0; // writing resets div
+    break;
+  case 0xFF05:
+    cpu->tima = val;
+    break;
+  case 0xFF06:
+    cpu->tma = val;
+    break;
+  case 0xFF07:
+    cpu->tac = val;
+    break;
+  case 0xFF41:
+    cpu->stat = val;
+    break;
+  case 0xFF45:
+    cpu->lyc = val;
+    break;
+  }
+}
+
+uint8_t hw_read(CPU *cpu, uint16_t address) {
+  switch (address) {
+  case 0xFF44:
+    // vblank
+    return cpu->ly;
+  case 0xFF00: {
+    // joyp
+    uint8_t select = cpu->joyp & 0xF0;
+
+    if (!(select & 0x10)) {
+      cpu->joyp = select | cpu->direction_state;
+    } else if (!(select & 0x20)) {
+      cpu->joyp = select | cpu->button_state;
+    } else {
+      cpu->joyp = select | 0x0F; // nothing selected
+    }
+    return cpu->joyp;
+  }
+  case 0xFF0F:
+    return cpu->if_reg;
+  case 0xFFFF:
+    return cpu->ie_reg;
+  case 0xFF04:
+    return cpu->divr;
+  case 0xFF05:
+    return cpu->tima;
+  case 0xFF06:
+    return cpu->tma;
+  case 0xFF07:
+    return cpu->tac;
+  case 0xFF41:
+    return cpu->stat;
+  case 0xFF45:
+    return cpu->lyc;
+  default:
+    return 0;
+  }
+}
+
+void CPU_check_stat_interrupt(CPU *cpu, uint8_t mode) {
+  if (cpu->ly == cpu->lyc) {
+    cpu->stat |= 0x04; // LYC=LY flag
+    if (cpu->stat & 0x40) {
+      cpu->if_reg |= 0x02; // request STAT interrupt
+    }
+  } else {
+    cpu->stat &= ~0x04;
+  }
+
+  cpu->stat = (cpu->stat & 0xFC) | (mode & 0x03); // set mode
+
+  switch (mode) {
+  case 0: // hblank
+    if (cpu->stat & 0x08) {
+      cpu->if_reg |= 0x02;
+    }
+    break;
+  case 1: // vblank
+    if (cpu->stat & 0x10) {
+      cpu->if_reg |= 0x02;
+    }
+    break;
+  case 2: // oam
+    if (cpu->stat & 0x20) {
+      cpu->if_reg |= 0x02;
+    }
+    break;
+  case 3: // lcd
+    // no stat interrupt
+    break;
+  }
 }
 
 void CPU_display(CPU *cpu) {
@@ -64,8 +182,8 @@ uint8_t *CPU_memory(CPU *cpu) { return cpu->_memory; };
 
 uint8_t CPU_read_memory(CPU *cpu, uint16_t addr) {
   // MMIO / hardware registers
-  if (cpu->hw_read && ((addr >= 0xFF00 && addr <= 0xFF7F) || addr == 0xFFFF)) {
-    return cpu->hw_read(addr);
+  if (((addr >= 0xFF00 && addr <= 0xFF7F) || addr == 0xFFFF)) {
+    return hw_read(cpu, addr);
   }
 
   // ROM or external RAM (handled by MBC)
@@ -78,8 +196,8 @@ uint8_t CPU_read_memory(CPU *cpu, uint16_t addr) {
 }
 
 void CPU_write_memory(CPU *cpu, uint16_t addr, uint8_t val) {
-  if (cpu->hw_write && ((addr >= 0xFF00 && addr <= 0xFF7F) || addr == 0xFFFF)) {
-    cpu->hw_write(addr, val);
+  if (((addr >= 0xFF00 && addr <= 0xFF7F) || addr == 0xFFFF)) {
+    hw_write(cpu, addr, val);
     return;
   }
 
@@ -91,6 +209,10 @@ void CPU_write_memory(CPU *cpu, uint16_t addr, uint8_t val) {
 
   // Normal RAM
   cpu->_memory[addr] = val;
+}
+
+uint8_t *CPU_io_pointer(CPU *cpu, uint16_t address) {
+  return &cpu->_memory[address];
 }
 
 // register sets:
@@ -1238,16 +1360,14 @@ void CPU_update_timer(CPU *cpu, int cycles_elapsed) {
   div_counter += cycles_elapsed;
   while (div_counter >= 256) {
     div_counter -= 256;
-    uint8_t div = CPU_read_memory(cpu, 0xFF04);
-    CPU_write_memory(cpu, 0xFF04, div + 1);
+    cpu->divr++;
   }
 
   // --- TIMA logic ---
-  uint8_t tac = CPU_read_memory(cpu, 0xFF07);
-  if (!(tac & 0x04))
+  if (!(cpu->tac & 0x04))
     return; // timer disabled
 
-  int freq_select = tac & 0x03;
+  int freq_select = cpu->tac & 0x03;
   int threshold;
   switch (freq_select) {
   case 0:
@@ -1268,19 +1388,12 @@ void CPU_update_timer(CPU *cpu, int cycles_elapsed) {
   while (tima_counter >= threshold) {
     tima_counter -= threshold;
 
-    uint8_t tima = CPU_read_memory(cpu, 0xFF05);
-    uint8_t tma = CPU_read_memory(cpu, 0xFF06);
-    uint8_t if_reg = CPU_read_memory(cpu, 0xFF0F);
-
-    if (tima == 0xFF) {
-      tima = tma;
-      if_reg |= 0x04; // timer interrupt
+    if (cpu->tima == 0xFF) {
+      cpu->tima = cpu->tma;
+      cpu->if_reg |= 0x04; // timer interrupt
     } else {
-      tima++;
+      cpu->tima++;
     }
-
-    CPU_write_memory(cpu, 0xFF05, tima);
-    CPU_write_memory(cpu, 0xFF0F, if_reg);
   }
 }
 
@@ -1299,15 +1412,13 @@ void CPU_instruction(CPU *cpu) {
 void CPU_run(CPU *cpu, int cycles) {
   for (int i = 0; i < cycles / 4; i++) {
     // handle interrupts if IME is set and if interrupt is pending
-    uint8_t iflags = CPU_read_memory(cpu, 0xFF0F);
-    uint8_t ienable = CPU_read_memory(cpu, 0xFFFF);
-
-    if (cpu->IME && (iflags & ienable)) {
+    if (cpu->IME && (cpu->if_reg & cpu->ie_reg)) {
       for (int j = 0; j < 5; j++) {
-        if ((iflags & (1 << j)) && (ienable & (1 << j))) {
+        if ((cpu->if_reg & (1 << j)) && (cpu->ie_reg & (1 << j))) {
+          printf("if_reg, ie_reg, i: %08b, %08b, %d\n", cpu->if_reg,
+                 cpu->ie_reg, j);
           cpu->IME = 0;
-          iflags &= ~(1 << j);
-          CPU_write_memory(cpu, 0xFF0F, iflags);
+          cpu->if_reg &= ~(1 << j);
 
           // push return address
           CPU_write_memory(cpu, --cpu->SP, (cpu->PC >> 8) & 0xFF);

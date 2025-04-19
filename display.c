@@ -46,137 +46,10 @@ void DISPLAY_plot_tile(uint8_t *tile, int x, int y, uint32_t *pixels) {
   }
 }
 
-// interrupt registers
-uint8_t ly = 0;                 // current scan line
-uint8_t direction_state = 0x0F; // 0 = pressed
-uint8_t button_state = 0x0F;
-uint8_t joyp = 0x3F;
-uint8_t if_reg = 0xE1;
-uint8_t ie_reg = 0x00;
+void DISPLAY_gbmemory_to_sdl(uint32_t *pixels, CPU *cpu) {
 
-// Timer registers
-uint8_t divr = 0; // 0xFF04 – Divider (increments every 256 cycles)
-uint8_t tima = 0; // 0xFF05 – Timer counter
-uint8_t tma = 0;  // 0xFF06 – Timer modulo (reload value)
-uint8_t tac = 0;  // 0xFF07 – Timer control
+  uint8_t *vram = CPU_memory(cpu) + 0x8000;
 
-// LCD status registers
-uint8_t stat = 0; // 0xFF41 – LCD STAT
-uint8_t lyc = 0;  // 0xFF45 – LYC compare value
-
-void hw_write(uint16_t address, uint8_t val) {
-  switch (address) {
-  case 0xFF44:
-    // vblank
-    ly = val;
-    break;
-  case 0xFF00:
-    // joyp
-    joyp = val;
-    break;
-  case 0xFF0F:
-    // interrupt flag
-    if_reg = val;
-    break;
-  case 0xFFFF:
-    // interrupt enable
-    ie_reg = val;
-    break;
-  case 0xFF04:
-    divr = 0; // writing resets div
-    break;
-  case 0xFF05:
-    tima = val;
-    break;
-  case 0xFF06:
-    tma = val;
-    break;
-  case 0xFF07:
-    tac = val;
-    break;
-  case 0xFF41:
-    stat = val;
-    break;
-  case 0xFF45:
-    lyc = val;
-    break;
-  }
-}
-
-uint8_t hw_read(uint16_t address) {
-  switch (address) {
-  case 0xFF44:
-    // vblank
-    return ly;
-  case 0xFF00: {
-    // joyp
-    uint8_t select = joyp & 0xF0;
-
-    if (!(select & 0x10)) {
-      joyp = select | direction_state;
-    } else if (!(select & 0x20)) {
-      joyp = select | button_state;
-    } else {
-      joyp = select | 0x0F; // nothing selected
-    }
-    return joyp;
-  }
-  case 0xFF0F:
-    return if_reg;
-  case 0xFFFF:
-    return ie_reg;
-  case 0xFF04:
-    return divr;
-  case 0xFF05:
-    return tima;
-  case 0xFF06:
-    return tma;
-  case 0xFF07:
-    return tac;
-  case 0xFF41:
-    return stat;
-  case 0xFF45:
-    return lyc;
-  default:
-    return 0;
-  }
-}
-
-void check_stat_interrupt(uint8_t mode) {
-  if (ly == lyc) {
-    stat |= 0x04; // LYC=LY flag
-    if (stat & 0x40) {
-      if_reg |= 0x02; // request STAT interrupt
-    }
-  } else {
-    stat &= ~0x04;
-  }
-
-  stat = (stat & 0xFC) | (mode & 0x03); // set mode
-
-  switch (mode) {
-  case 0: // hblank
-    if (stat & 0x08) {
-      if_reg |= 0x02;
-    }
-    break;
-  case 1: // vblank
-    if (stat & 0x10) {
-      if_reg |= 0x02;
-    }
-    break;
-  case 2: // oam
-    if (stat & 0x20) {
-      if_reg |= 0x02;
-    }
-    break;
-  case 3: // lcd
-    // no stat interrupt
-    break;
-  }
-}
-
-void DISPLAY_gbmemory_to_sdl(uint32_t *pixels, uint8_t *vram) {
   for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) {
     pixels[i] = colors[0];
   }
@@ -198,7 +71,6 @@ int main(int argc, char **argv) {
   };
 
   CPU *cpu = CPU_new();
-  CPU_hardware(cpu, hw_write, hw_read);
 
   // CPU_read_rom(cpu, argv[1]);
   cpu->cart = cart_load(argv[1]);
@@ -240,34 +112,36 @@ int main(int argc, char **argv) {
           batches = pressed ? 1 : 10;
           break;
         case SDLK_w:
-          direction_state =
-              (direction_state & ~BUTTON_UP) | (pressed ? BUTTON_UP : 0);
+          cpu->direction_state =
+              (cpu->direction_state & ~BUTTON_UP) | (pressed ? BUTTON_UP : 0);
           break;
         case SDLK_s:
-          direction_state =
-              (direction_state & ~BUTTON_DOWN) | (pressed ? BUTTON_DOWN : 0);
+          cpu->direction_state = (cpu->direction_state & ~BUTTON_DOWN) |
+                                 (pressed ? BUTTON_DOWN : 0);
           break;
         case SDLK_a:
-          direction_state =
-              (direction_state & ~BUTTON_LEFT) | (pressed ? BUTTON_LEFT : 0);
+          cpu->direction_state = (cpu->direction_state & ~BUTTON_LEFT) |
+                                 (pressed ? BUTTON_LEFT : 0);
           break;
         case SDLK_d:
-          direction_state =
-              (direction_state & ~BUTTON_RIGHT) | (pressed ? BUTTON_RIGHT : 0);
+          cpu->direction_state = (cpu->direction_state & ~BUTTON_RIGHT) |
+                                 (pressed ? BUTTON_RIGHT : 0);
           break;
         case SDLK_k:
-          button_state = (button_state & ~BUTTON_A) | (pressed ? BUTTON_A : 0);
+          cpu->button_state =
+              (cpu->button_state & ~BUTTON_A) | (pressed ? BUTTON_A : 0);
           break;
         case SDLK_j:
-          button_state = (button_state & ~BUTTON_B) | (pressed ? BUTTON_B : 0);
+          cpu->button_state =
+              (cpu->button_state & ~BUTTON_B) | (pressed ? BUTTON_B : 0);
           break;
         case SDLK_l:
-          button_state =
-              (button_state & ~BUTTON_SELECT) | (pressed ? BUTTON_SELECT : 0);
+          cpu->button_state = (cpu->button_state & ~BUTTON_SELECT) |
+                              (pressed ? BUTTON_SELECT : 0);
           break;
         case SDLK_SEMICOLON:
-          button_state =
-              (button_state & ~BUTTON_START) | (pressed ? BUTTON_START : 0);
+          cpu->button_state = (cpu->button_state & ~BUTTON_START) |
+                              (pressed ? BUTTON_START : 0);
           break;
         }
       }
@@ -275,38 +149,38 @@ int main(int argc, char **argv) {
 
     // cpu loop
     for (int scanline = 0; scanline < 144; scanline++) {
-      ly = scanline;
+      cpu->ly = scanline;
       for (int j = 0; j < batches; j++) {
         // mode 2, oam
-        check_stat_interrupt(2);
+        CPU_check_stat_interrupt(cpu, 2);
         CPU_run(cpu, 80);
 
         // mode 3, lcd
-        check_stat_interrupt(3);
+        CPU_check_stat_interrupt(cpu, 3);
         CPU_run(cpu, 172);
 
         // mode 0, hblank
-        check_stat_interrupt(0);
+        CPU_check_stat_interrupt(cpu, 0);
         CPU_run(cpu, 204);
       }
     }
 
     // vblank loop
     for (int scanline = 144; scanline < 154; scanline++) {
-      ly = scanline;
+      cpu->ly = scanline;
       for (int j = 0; j < batches; j++) {
         // mode 1, vblank
-        check_stat_interrupt(1);
-        if (ly == 144) {
+        CPU_check_stat_interrupt(cpu, 1);
+        if (cpu->ly == 144) {
           // request vblank interrupt
-          if_reg |= 0x01;
+          cpu->if_reg |= 0x01;
         }
         CPU_run(cpu, 456);
       }
     }
 
     // draw screen
-    DISPLAY_gbmemory_to_sdl(pixels, CPU_memory(cpu) + 0x8000);
+    DISPLAY_gbmemory_to_sdl(pixels, cpu);
     SDL_UpdateTexture(texture, NULL, pixels, 160 * sizeof(uint32_t));
     SDL_RenderCopy(renderer, texture, NULL, &dest_rect);
     // wait for vsync
