@@ -23,43 +23,200 @@ static uint32_t colors[4] = {
     [2] = 0xFFBFBFBF,
     [3] = 0xFF000000,
 };
-void DISPLAY_plot_tile(uint8_t *tile, int x, int y, uint32_t *pixels) {
+
+// Helper function to get tile address based on LCDC register
+uint8_t *get_tile_address(uint8_t tile_index, uint8_t lcdc, uint8_t *vram) {
+  // LCDC bit 4 controls which tile data table to use
+  if (lcdc & 0x10) {
+    // Use 0x8000-0x8FFF, tile index is unsigned (0-255)
+    return vram + tile_index * 16;
+  } else {
+    // Use 0x8800-0x97FF, tile index is signed (-128 to 127)
+    return vram + 0x1000 + ((int8_t)tile_index) * 16;
+  }
+}
+
+void DISPLAY_plot_tile(uint8_t *tile, int x, int y, uint32_t *pixels,
+                       uint8_t palette) {
   for (int row = 0; row < 8; row++) {
     uint8_t b0 = *tile++;
     uint8_t b1 = *tile++;
-
     for (int col = 0; col < 8; col++) {
       uint8_t X = x + col;
       uint8_t Y = y + row;
       if (X >= DISPLAY_WIDTH || Y >= DISPLAY_HEIGHT) {
         continue;
       }
-      uint8_t colorindex = ((b0 & 0x80) >> 6) | ((b1 & 0x80) >> 7);
+      uint8_t colorindex = ((b0 & 0x80) >> 7) | ((b1 & 0x80) >> 6);
+      // Apply palette mapping
+      colorindex = (palette >> (colorindex * 2)) & 0x03;
       uint32_t color = colors[colorindex];
-
-      if (colorindex != 0) {
-        pixels[Y * DISPLAY_WIDTH + X] = color;
-      }
+      pixels[Y * DISPLAY_WIDTH + X] = color;
       b0 <<= 1;
       b1 <<= 1;
     }
   }
 }
 
-void DISPLAY_gbmemory_to_sdl(uint32_t *pixels, CPU *cpu) {
+void DISPLAY_plot_sprite(uint8_t *tile, int x, int y, uint32_t *pixels,
+                         uint8_t attributes, uint8_t palette) {
+  bool xflip = attributes & 0x20;
+  bool yflip = attributes & 0x40;
+  bool priority = !(attributes & 0x80); // 0 means above background
 
+  for (int row = 0; row < 8; row++) {
+    int actual_row = yflip ? 7 - row : row;
+    uint8_t b0 = tile[actual_row * 2];
+    uint8_t b1 = tile[actual_row * 2 + 1];
+
+    for (int col = 0; col < 8; col++) {
+      int actual_col = xflip ? 7 - col : col;
+      uint8_t pixel_x = x + col;
+      uint8_t pixel_y = y + row;
+
+      if (pixel_x >= DISPLAY_WIDTH || pixel_y >= DISPLAY_HEIGHT) {
+        continue;
+      }
+
+      uint8_t colorindex = ((b0 >> (7 - actual_col)) & 1) |
+                           (((b1 >> (7 - actual_col)) & 1) << 1);
+      if (colorindex == 0)
+        continue; // Transparent pixel
+
+      // Apply palette mapping
+      colorindex = (palette >> (colorindex * 2)) & 0x03;
+      uint32_t color = colors[colorindex];
+
+      // Only draw if we have priority or the background is white
+      if (priority || pixels[pixel_y * DISPLAY_WIDTH + pixel_x] == colors[0]) {
+        pixels[pixel_y * DISPLAY_WIDTH + pixel_x] = color;
+      }
+    }
+  }
+}
+
+void DISPLAY_gbmemory_to_sdl(uint32_t *pixels, CPU *cpu) {
   uint8_t *vram = CPU_memory(cpu) + 0x8000;
 
+  // Clear the screen with background color
   for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) {
-    pixels[i] = colors[0];
+    pixels[i] = colors[cpu->bgp & 0x03]; // Color 0 from palette
   }
 
-  const uint8_t *bg_map = vram + 0x1800;
-  for (int row = 0; row < 32; row++) {
-    for (int col = 0; col < 32; col++) {
-      uint8_t tile_index = bg_map[row * 32 + col];
-      uint8_t *tile = vram + tile_index * 16 + 0x1000;
-      DISPLAY_plot_tile(tile, col * 8, row * 8, pixels);
+  // Don't render anything if LCD is off
+  if (!(cpu->lcdc & 0x80))
+    return;
+
+  // 1. Render Background if enabled
+  if (cpu->lcdc & 0x01) {
+    // Select background map based on LCDC bit 3
+    const uint8_t *bg_map = vram + (cpu->lcdc & 0x08 ? 0x1C00 : 0x1800);
+
+    for (int y = 0; y < DISPLAY_HEIGHT; y++) {
+      for (int x = 0; x < DISPLAY_WIDTH; x++) {
+        // Calculate position in the 256x256 background map
+        uint8_t bg_x = (x + cpu->scx) & 0xFF;
+        uint8_t bg_y = (y + cpu->scy) & 0xFF;
+
+        // Get tile index from background map
+        uint8_t tile_x = bg_x / 8;
+        uint8_t tile_y = bg_y / 8;
+        uint8_t tile_index = bg_map[tile_y * 32 + tile_x];
+
+        // Get tile data address
+        uint8_t *tile = get_tile_address(tile_index, cpu->lcdc, vram);
+
+        // Plot single pixel from the tile
+        uint8_t tile_pixel_x = bg_x % 8;
+        uint8_t tile_pixel_y = bg_y % 8;
+
+        uint8_t b0 = tile[tile_pixel_y * 2];
+        uint8_t b1 = tile[tile_pixel_y * 2 + 1];
+
+        uint8_t colorindex = ((b0 >> (7 - tile_pixel_x)) & 1) |
+                             (((b1 >> (7 - tile_pixel_x)) & 1) << 1);
+
+        // Apply palette mapping
+        colorindex = (cpu->bgp >> (colorindex * 2)) & 0x03;
+        pixels[y * DISPLAY_WIDTH + x] = colors[colorindex];
+      }
+    }
+  }
+
+  // 2. Render Window if enabled
+  if ((cpu->lcdc & 0x20) && cpu->wx <= 166 && cpu->wy < DISPLAY_HEIGHT) {
+    // Select window map based on LCDC bit 6
+    const uint8_t *win_map = vram + (cpu->lcdc & 0x40 ? 0x1C00 : 0x1800);
+
+    for (int y = 0; y < DISPLAY_HEIGHT - cpu->wy; y++) {
+      if (y + cpu->wy >= DISPLAY_HEIGHT)
+        break;
+
+      for (int x = 0; x < DISPLAY_WIDTH - (cpu->wx - 7); x++) {
+        if (x + cpu->wx - 7 < 0 || x + cpu->wx - 7 >= DISPLAY_WIDTH)
+          continue;
+
+        // Calculate position in the window
+        uint8_t win_x = x;
+        uint8_t win_y = y;
+
+        // Get tile index from window map
+        uint8_t tile_x = win_x / 8;
+        uint8_t tile_y = win_y / 8;
+        uint8_t tile_index = win_map[tile_y * 32 + tile_x];
+
+        // Get tile data address
+        uint8_t *tile = get_tile_address(tile_index, cpu->lcdc, vram);
+
+        // Plot single pixel from the tile
+        uint8_t tile_pixel_x = win_x % 8;
+        uint8_t tile_pixel_y = win_y % 8;
+
+        uint8_t b0 = tile[tile_pixel_y * 2];
+        uint8_t b1 = tile[tile_pixel_y * 2 + 1];
+
+        uint8_t colorindex = ((b0 >> (7 - tile_pixel_x)) & 1) |
+                             (((b1 >> (7 - tile_pixel_x)) & 1) << 1);
+
+        // Apply palette mapping
+        colorindex = (cpu->bgp >> (colorindex * 2)) & 0x03;
+        pixels[(y + cpu->wy) * DISPLAY_WIDTH + (x + cpu->wx - 7)] =
+            colors[colorindex];
+      }
+    }
+  }
+
+  // 3. Render Sprites if enabled
+  if (cpu->lcdc & 0x02) {
+    uint8_t sprite_height = (cpu->lcdc & 0x04) ? 16 : 8;
+    uint8_t *oam = cpu->_memory + 0xFE00; // Object Attribute Memory
+
+    // Process sprites in priority order (lower x has higher priority)
+    for (int sprite = 0; sprite < 40; sprite++) {
+      uint8_t y = oam[sprite * 4] - 16;         // Y position
+      uint8_t x = oam[sprite * 4 + 1] - 8;      // X position
+      uint8_t tile_index = oam[sprite * 4 + 2]; // Tile index
+      uint8_t attributes = oam[sprite * 4 + 3]; // Attributes
+
+      // Skip if sprite is off-screen
+      if (y >= DISPLAY_HEIGHT || x >= DISPLAY_WIDTH)
+        continue;
+
+      // For 8x16 sprites, last bit of tile index is ignored
+      if (sprite_height == 16) {
+        tile_index &= 0xFE;
+      }
+
+      uint8_t *tile = vram + tile_index * 16;
+      uint8_t palette = (attributes & 0x10) ? cpu->obp1 : cpu->obp0;
+
+      DISPLAY_plot_sprite(tile, x, y, pixels, attributes, palette);
+
+      // For 8x16 sprites, draw the bottom half
+      if (sprite_height == 16) {
+        DISPLAY_plot_sprite(vram + (tile_index + 1) * 16, x, y + 8, pixels,
+                            attributes, palette);
+      }
     }
   }
 }

@@ -76,11 +76,50 @@ void hw_write(CPU *cpu, uint16_t address, uint8_t val) {
   case 0xFF07:
     cpu->tac = val;
     break;
+  case 0xFF40:
+    // lcdc
+    cpu->lcdc = val;
+    break;
+  case 0xFF42:
+    // scy
+    cpu->scy = val;
+    break;
+  case 0xFF43:
+    // scx
+    cpu->scx = val;
+    break;
+  case 0xFF4A:
+    // wy
+    cpu->wy = val;
+    break;
+  case 0xFF4B:
+    // wx
+    cpu->wx = val;
+    break;
+  case 0xFF47:
+    // bgp
+    cpu->bgp = val;
+    break;
+  case 0xFF48:
+    // obp0
+    cpu->obp0 = val;
+    break;
+  case 0xFF49:
+    // obp1
+    cpu->obp1 = val;
+    break;
   case 0xFF41:
     cpu->stat = val;
     break;
   case 0xFF45:
     cpu->lyc = val;
+    break;
+  case 0xFF46:
+    // DMA transfer
+    address = val << 8;
+    for (int i = 0; i < 0xA0; i++) {
+      cpu->_memory[0xFE00 + i] = CPU_read_memory(cpu, address + i);
+    }
     break;
   }
 }
@@ -115,6 +154,25 @@ uint8_t hw_read(CPU *cpu, uint16_t address) {
     return cpu->tma;
   case 0xFF07:
     return cpu->tac;
+  case 0xFF40:
+    return cpu->lcdc;
+  case 0xFF42:
+    return cpu->scy;
+  case 0xFF43:
+    return cpu->scx;
+  case 0xFF4A:
+    return cpu->wy;
+  case 0xFF4B:
+    return cpu->wx;
+  case 0xFF47:
+    return cpu->bgp;
+  case 0xFF48:
+    return cpu->obp0;
+  case 0xFF49:
+    return cpu->obp1;
+  case 0xFF46:
+    // DMA transfer
+    return 0xFF; // not used
   case 0xFF41:
     return cpu->stat;
   case 0xFF45:

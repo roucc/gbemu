@@ -42,6 +42,16 @@ typedef struct CPU {
   uint8_t if_reg;
   uint8_t ie_reg;
 
+  // display registers
+  uint8_t lcdc; // 0xFF40 – LCD control
+  uint8_t scy;  // 0xFF42 – SCY
+  uint8_t scx;  // 0xFF43 – SCX
+  uint8_t wy;   // 0xFF4A – WY
+  uint8_t wx;   // 0xFF4B – WX
+  uint8_t bgp;  // 0xFF47 – BG palette data
+  uint8_t obp0; // 0xFF48 – OBJ palette 0 data
+  uint8_t obp1; // 0xFF49 – OBJ palette 1 data
+
   // Timer registers
   uint8_t divr; // 0xFF04 – Divider (increments every 256 cycles)
   uint8_t tima; // 0xFF05 – Timer counter
