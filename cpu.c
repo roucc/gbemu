@@ -41,6 +41,7 @@ CPU *CPU_new() {
   cpu->IME = 0;
   cpu->pending_IME = 0;
   cpu->cycle_count = 0;
+  cpu->halted = 0;
 
   return cpu;
 }
@@ -216,28 +217,55 @@ uint8_t *CPU_io_pointer(CPU *cpu, uint16_t address) {
 }
 
 // register sets:
-
-uint8_t *CPU_r8(CPU *cpu, uint8_t n) {
+uint8_t CPU_r8_read(CPU *cpu, uint8_t n) {
   switch (n) {
   case 0:
-    return &cpu->B;
+    return cpu->B;
   case 1:
-    return &cpu->C;
+    return cpu->C;
   case 2:
-    return &cpu->D;
+    return cpu->D;
   case 3:
-    return &cpu->E;
+    return cpu->E;
   case 4:
-    return &cpu->H;
+    return cpu->H;
   case 5:
-    return &cpu->L;
+    return cpu->L;
   case 6:
-    return &cpu->_memory[cpu->H << 8 | cpu->L];
-    // FIXME: urm
+    return CPU_read_memory(cpu, cpu->HL);
   case 7:
-    return &cpu->A;
+    return cpu->A;
   default:
-    return NULL;
+    return 0;
+  }
+};
+
+void CPU_r8_write(CPU *cpu, uint8_t n, uint8_t val) {
+  switch (n) {
+  case 0:
+    cpu->B = val;
+    break;
+  case 1:
+    cpu->C = val;
+    break;
+  case 2:
+    cpu->D = val;
+    break;
+  case 3:
+    cpu->E = val;
+    break;
+  case 4:
+    cpu->H = val;
+    break;
+  case 5:
+    cpu->L = val;
+    break;
+  case 6:
+    CPU_write_memory(cpu, cpu->HL, val);
+    break;
+  case 7:
+    cpu->A = val;
+    break;
   }
 };
 
@@ -412,11 +440,11 @@ void CPU_add_hl_r16(CPU *cpu, uint8_t opcode) {
 }
 
 void CPU_inc_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, (opcode >> 3) & 0x07);
+  uint8_t src = CPU_r8_read(cpu, (opcode >> 3) & 0x07);
   uint8_t carry = cpu->F & F_c;
-  uint8_t result = *src + 1;
-  uint8_t half = ((*src & 0xF) == 0xF) ? F_h : 0;
-  *src = result;
+  uint8_t result = src + 1;
+  uint8_t half = ((src & 0xF) == 0xF) ? F_h : 0;
+  CPU_r8_write(cpu, (opcode >> 3) & 0x07, result);
   cpu->F = carry; // preserve C
   if (result == 0)
     cpu->F |= F_z;
@@ -425,11 +453,11 @@ void CPU_inc_r8(CPU *cpu, uint8_t opcode) {
 }
 
 void CPU_dec_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, (opcode >> 3) & 0x07);
+  uint8_t src = CPU_r8_read(cpu, (opcode >> 3) & 0x07);
   uint8_t carry = cpu->F & F_c;
-  uint8_t result = *src - 1;
-  uint8_t half = ((*src & 0xF) == 0) ? F_h : 0;
-  *src = result;
+  uint8_t result = src - 1;
+  uint8_t half = ((src & 0xF) == 0) ? F_h : 0;
+  CPU_r8_write(cpu, (opcode >> 3) & 0x07, result);
   cpu->F = carry; // preserve C
   if (result == 0)
     cpu->F |= F_z;
@@ -438,8 +466,8 @@ void CPU_dec_r8(CPU *cpu, uint8_t opcode) {
 }
 
 void CPU_LD_r8_imm8(CPU *cpu, uint8_t opcode) {
-  uint8_t *dst = CPU_r8(cpu, (opcode >> 3) & 0x07);
-  *dst = CPU_imm8(cpu, opcode);
+  uint8_t val = CPU_imm8(cpu, opcode);
+  CPU_r8_write(cpu, (opcode >> 3) & 0x07, val);
 };
 
 void CPU_rlca(CPU *cpu, uint8_t opcode) {
@@ -547,26 +575,24 @@ void CPU_halt(CPU *cpu, uint8_t opcode) {
   (void)opcode;
   // CPU_display(cpu);
   // CPU_core_dump(cpu);
-
-  cpu->PC--;
+  cpu->halted = 1;
 };
 
 void CPU_LD_r8_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint8_t *dst = CPU_r8(cpu, (opcode >> 3) & 0x07);
-  *dst = *src;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  CPU_r8_write(cpu, (opcode >> 3) & 0x07, src);
 };
 
 // block 2 instructions:
 
 void CPU_add_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint16_t result = cpu->A + *src;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint16_t result = cpu->A + src;
   uint8_t carry = cpu->F & F_c; // preserve C flag
   cpu->F = carry;               // clear Z, N, H then restore C
   if ((result & 0xFF) == 0)
     cpu->F |= F_z;
-  if (((cpu->A & 0xF) + (*src & 0xF)) > 0xF)
+  if (((cpu->A & 0xF) + (src & 0xF)) > 0xF)
     cpu->F |= F_h;
   if (result > 0xFF)
     cpu->F |= F_c;
@@ -574,13 +600,13 @@ void CPU_add_a_r8(CPU *cpu, uint8_t opcode) {
 }
 
 void CPU_adc_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
   uint8_t carry = (cpu->F & F_c) ? 1 : 0;
-  uint16_t result = cpu->A + *src + carry;
+  uint16_t result = cpu->A + src + carry;
   cpu->F = 0;
   if ((result & 0xFF) == 0)
     cpu->F |= F_z;
-  if (((cpu->A & 0xF) + (*src & 0xF) + carry) > 0xF)
+  if (((cpu->A & 0xF) + (src & 0xF) + carry) > 0xF)
     cpu->F |= F_h;
   if (result > 0xFF)
     cpu->F |= F_c;
@@ -588,59 +614,59 @@ void CPU_adc_a_r8(CPU *cpu, uint8_t opcode) {
 }
 
 void CPU_sbc_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
   uint8_t carry = (cpu->F & F_c) ? 1 : 0;
-  uint16_t result = cpu->A - (*src + carry);
+  uint16_t result = cpu->A - (src + carry);
   cpu->F = F_n;
   if ((result & 0xFF) == 0)
     cpu->F |= F_z;
-  if ((cpu->A & 0xF) < ((*src & 0xF) + carry))
+  if ((cpu->A & 0xF) < ((src & 0xF) + carry))
     cpu->F |= F_h;
-  if (cpu->A < (*src + carry))
+  if (cpu->A < (src + carry))
     cpu->F |= F_c;
   cpu->A = result & 0xFF;
 }
 
 void CPU_cp_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint8_t result = cpu->A - *src;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint8_t result = cpu->A - src;
   cpu->F = F_n;
   if (result == 0)
     cpu->F |= F_z;
-  if ((cpu->A & 0xF) < (*src & 0xF))
+  if ((cpu->A & 0xF) < (src & 0xF))
     cpu->F |= F_h;
-  if (cpu->A < *src)
+  if (cpu->A < src)
     cpu->F |= F_c;
 }
 
 void CPU_sub_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint16_t result = cpu->A - *src;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint16_t result = cpu->A - src;
   cpu->F = F_n; // subtraction: set N
   if ((result & 0xFF) == 0)
     cpu->F |= F_z;
-  if ((cpu->A & 0xF) < (*src & 0xF))
+  if ((cpu->A & 0xF) < (src & 0xF))
     cpu->F |= F_h;
-  if (cpu->A < *src)
+  if (cpu->A < src)
     cpu->F |= F_c;
   cpu->A = result & 0xFF;
 }
 
 void CPU_and_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  cpu->A &= *src;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  cpu->A &= src;
   cpu->F = (cpu->A == 0 ? F_z : 0) | F_h;
 }
 
 void CPU_xor_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  cpu->A ^= *src;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  cpu->A ^= src;
   cpu->F = (cpu->A == 0) ? F_z : 0; // clear N, H, C
 }
 
 void CPU_or_a_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  cpu->A |= *src;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  cpu->A |= src;
   cpu->F = (cpu->A == 0) ? F_z : 0;
 }
 
@@ -880,9 +906,10 @@ void CPU_ldh_a_indirectimm8(CPU *cpu, uint8_t opcode) {
 // prefix instructions:
 
 void CPU_rlc_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint8_t c = *src & 0x80;
-  *src = (*src << 1) | (c >> 7);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint8_t c = src & 0x80;
+  src = (src << 1) | (c >> 7);
+  CPU_r8_write(cpu, opcode & 0x07, src);
   if (c) {
     cpu->F |= F_c;
   } else {
@@ -891,9 +918,10 @@ void CPU_rlc_r8(CPU *cpu, uint8_t opcode) {
 };
 
 void CPU_rrc_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint8_t c = *src & 0x01;
-  *src = (*src >> 1) | (c << 7);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint8_t c = src & 0x01;
+  src = (src >> 1) | (c << 7);
+  CPU_r8_write(cpu, opcode & 0x07, src);
   if (c) {
     cpu->F |= F_c;
   } else {
@@ -902,25 +930,28 @@ void CPU_rrc_r8(CPU *cpu, uint8_t opcode) {
 };
 
 void CPU_rl_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *reg = CPU_r8(cpu, opcode & 0x07);
+  uint8_t reg = CPU_r8_read(cpu, opcode & 0x07);
   uint8_t oldCarry = (cpu->F & F_c) ? 1 : 0;
-  uint8_t msb = (*reg & 0x80) >> 7;
-  *reg = (*reg << 1) | oldCarry;
-  cpu->F = ((*reg == 0) ? F_z : 0) | (msb ? F_c : 0);
+  uint8_t msb = (reg & 0x80) >> 7;
+  reg = (reg << 1) | oldCarry;
+  CPU_r8_write(cpu, opcode & 0x07, reg);
+  cpu->F = ((reg == 0) ? F_z : 0) | (msb ? F_c : 0);
 }
 
 void CPU_rr_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *reg = CPU_r8(cpu, opcode & 0x07);
+  uint8_t reg = CPU_r8_read(cpu, opcode & 0x07);
   uint8_t oldCarry = (cpu->F & F_c) ? 1 : 0;
-  uint8_t lsb = *reg & 0x01;
-  *reg = (*reg >> 1) | (oldCarry << 7);
-  cpu->F = ((*reg == 0) ? F_z : 0) | (lsb ? F_c : 0);
+  uint8_t lsb = reg & 0x01;
+  reg = (reg >> 1) | (oldCarry << 7);
+  CPU_r8_write(cpu, opcode & 0x07, reg);
+  cpu->F = ((reg == 0) ? F_z : 0) | (lsb ? F_c : 0);
 }
 
 void CPU_sla_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint8_t c = *src & 0x80;
-  *src = *src << 1;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint8_t c = src & 0x80;
+  src = src << 1;
+  CPU_r8_write(cpu, opcode & 0x07, src);
   if (c) {
     cpu->F |= F_c;
   } else {
@@ -929,9 +960,10 @@ void CPU_sla_r8(CPU *cpu, uint8_t opcode) {
 };
 
 void CPU_sra_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint8_t c = *src & 0x01;
-  *src = (*src >> 1) | (*src & 0x80);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint8_t c = src & 0x01;
+  src = (src >> 1) | (src & 0x80);
+  CPU_r8_write(cpu, opcode & 0x07, src);
   if (c) {
     cpu->F |= F_c;
   } else {
@@ -940,9 +972,10 @@ void CPU_sra_r8(CPU *cpu, uint8_t opcode) {
 };
 
 void CPU_swap_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  *src = (*src >> 4) | (*src << 4);
-  if (*src == 0) {
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  src = (src >> 4) | (src << 4);
+  CPU_r8_write(cpu, opcode & 0x07, src);
+  if (src == 0) {
     cpu->F |= F_z;
   } else {
     cpu->F &= ~F_z;
@@ -950,9 +983,10 @@ void CPU_swap_r8(CPU *cpu, uint8_t opcode) {
 };
 
 void CPU_srl_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
-  uint8_t c = *src & 0x01;
-  *src = *src >> 1;
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
+  uint8_t c = src & 0x01;
+  src = src >> 1;
+  CPU_r8_write(cpu, opcode & 0x07, src);
   if (c) {
     cpu->F |= F_c;
   } else {
@@ -961,9 +995,9 @@ void CPU_srl_r8(CPU *cpu, uint8_t opcode) {
 };
 
 void CPU_bit_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
   uint8_t bit = (opcode >> 3) & 0x07;
-  if (!(*src & (1 << bit))) {
+  if (!(src & (1 << bit))) {
     cpu->F |= F_z;
   } else {
     cpu->F &= ~F_z;
@@ -973,15 +1007,17 @@ void CPU_bit_r8(CPU *cpu, uint8_t opcode) {
 };
 
 void CPU_res_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
   uint8_t bit = (opcode >> 3) & 0x07;
-  *src &= ~(1 << bit);
+  src &= ~(1 << bit);
+  CPU_r8_write(cpu, opcode & 0x07, src);
 };
 
 void CPU_set_r8(CPU *cpu, uint8_t opcode) {
-  uint8_t *src = CPU_r8(cpu, opcode & 0x07);
+  uint8_t src = CPU_r8_read(cpu, opcode & 0x07);
   uint8_t bit = (opcode >> 3) & 0x07;
-  *src |= (1 << bit);
+  src |= (1 << bit);
+  CPU_r8_write(cpu, opcode & 0x07, src);
 };
 
 // invalid insturction:
@@ -1415,8 +1451,8 @@ void CPU_run(CPU *cpu, int cycles) {
     if (cpu->IME && (cpu->if_reg & cpu->ie_reg)) {
       for (int j = 0; j < 5; j++) {
         if ((cpu->if_reg & (1 << j)) && (cpu->ie_reg & (1 << j))) {
-          printf("if_reg, ie_reg, i: %08b, %08b, %d\n", cpu->if_reg,
-                 cpu->ie_reg, j);
+          // printf("if_reg, ie_reg, i: %08b, %08b, %d\n", cpu->if_reg,
+          //        cpu->ie_reg, j);
           cpu->IME = 0;
           cpu->if_reg &= ~(1 << j);
 
@@ -1424,20 +1460,15 @@ void CPU_run(CPU *cpu, int cycles) {
           CPU_write_memory(cpu, --cpu->SP, (cpu->PC >> 8) & 0xFF);
           CPU_write_memory(cpu, --cpu->SP, cpu->PC & 0xFF);
           cpu->PC = 0x40 + j * 8; // jump to ISR
+          cpu->halted = 0;
           break;
         }
       }
     }
+    // printf("pc: %04X\n", cpu->PC);
     // CPU_display(cpu);
-    CPU_instruction(cpu);
+    if (!cpu->halted) {
+      CPU_instruction(cpu);
+    }
   }
-}
-
-void CPU_read_rom(CPU *cpu, const char *filename) {
-  cpu->cart = cart_load(filename);
-  if (!cpu->cart) {
-    printf("Failed to load cartridge: %s\n", filename);
-    exit(1);
-  }
-  printf("Loaded %zu bytes of ROM\n", cpu->cart->rom_size);
 }

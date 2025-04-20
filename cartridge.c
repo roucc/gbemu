@@ -73,6 +73,7 @@ uint8_t cart_read(Cartridge *cart, uint16_t addr) {
 }
 
 void cart_write(Cartridge *cart, uint16_t addr, uint8_t val) {
+  // printf("cart write called, addr: %04X, val: %02X\n", addr, val);
   if (addr < 0x2000) {
     cart->ram_enable = (val & 0x0F) == 0x0A;
   } else if (addr < 0x4000) {

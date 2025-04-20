@@ -72,13 +72,13 @@ int main(int argc, char **argv) {
 
   CPU *cpu = CPU_new();
 
-  // CPU_read_rom(cpu, argv[1]);
   cpu->cart = cart_load(argv[1]);
   if (!cpu->cart) {
     printf("Failed to load ROM\n");
     return 1;
   }
   printf("Loaded %zu bytes of ROM\n", cpu->cart->rom_size);
+  printf("Cartridge type: %02X\n", cpu->cart->rom[0x0147]);
 
   SDL_Init(SDL_INIT_VIDEO);
   SDL_Window *window = SDL_CreateWindow(
@@ -142,6 +142,12 @@ int main(int argc, char **argv) {
         case SDLK_SEMICOLON:
           cpu->button_state = (cpu->button_state & ~BUTTON_START) |
                               (pressed ? BUTTON_START : 0);
+          break;
+        case SDLK_ESCAPE:
+          CPU_display(cpu);
+          break;
+        case SDLK_q:
+          exit(0);
           break;
         }
       }

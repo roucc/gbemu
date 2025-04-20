@@ -59,6 +59,7 @@ typedef struct CPU {
   uint8_t IME;
   uint8_t pending_IME;
   uint64_t cycle_count;
+  uint8_t halted;
 
   // Cartridge
   Cartridge *cart;
@@ -72,5 +73,6 @@ uint8_t CPU_read_memory(CPU *cpu, uint16_t address);
 void CPU_write_memory(CPU *cpu, uint16_t addr, uint8_t val);
 uint8_t *CPU_io_pointer(CPU *cpu, uint16_t address);
 void CPU_check_stat_interrupt(CPU *cpu, uint8_t mode);
+void CPU_display(CPU *cpu);
 
 #endif // CPU_H
