@@ -623,8 +623,10 @@ void CPU_push_r16stk(CPU *cpu, uint8_t opcode) {
 void CPU_pop_r16stk(CPU *cpu, uint8_t opcode) {
   uint16_t *dst = CPU_r16stk(cpu, (opcode >> 4) & 0x03);
   *dst = CPU_read_memory(cpu, cpu->SP++);
-  // *dst |= cpu->memory[cpu->SP++] << 8;
   *dst |= CPU_read_memory(cpu, cpu->SP++) << 8;
+  if (((opcode >> 4) & 0x03) == 0x03) {
+    cpu->F &= 0xF0;
+  }
 };
 
 // block 1 instructions:
