@@ -45,6 +45,8 @@ Then run:
 
 Or link the rgbasmtest.asm and run the "hello world" program
 
+Or run the PI program by [ncw](https://github.com/ncw)
+
 ## Files
 
 * cpu.c/.h: CPU emulation (instructions, memory)
@@ -59,6 +61,13 @@ Or link the rgbasmtest.asm and run the "hello world" program
 * Sound emulation
 * Other Cartridge MBC support
 * Save states
+
+## credit
+
+* [PAN DOCS](https://gbdev.io/pandocs/)
+* [RGBASM](https://rgbds.gbdev.io/docs/v0.5.1/rgbasm.5)
+* [INSTRUCTION SET](https://gbdev.io/gb-opcodes/optables/)
+* Nintendo lol
 
 ## License
 
